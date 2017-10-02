@@ -89,6 +89,9 @@ create_out_dir_param=TRUE # param 9
 out_suffix <-"segmentation_example_10022017" #output suffix for the files and ouptut folder #param 12
 
 infile_data <- "test_0.shp" #segments level zero
+infile_data <- "test_50.shp" #segments level zero
+
+infile_raster_band2 <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/input_data/sierra2.rst"
 
 model_names <- c("kmeans")
 
@@ -100,6 +103,7 @@ if(is.null(out_dir)){
   out_dir <- in_dir #output will be created in the input dir
   
 }
+
 #out_dir <- in_dir #output will be created in the input dir
 
 out_suffix_s <- out_suffix #can modify name of output suffix
@@ -120,6 +124,50 @@ options(scipen=999)  #remove scientific writing
 segments_sf <- st_read(file.path(in_dir,infile_data))
 plot(segments_sf$geometry)
 
-dim(segments_sf)
+dim(segments_sf) #26927
+
+pattern_rasters <- "sierra.*.rst$"
+#list.files(pattern=pattern_rasters,path=dirname(infile_raster))
+lf_rasters<- list.files(pattern=pattern_rasters,
+                        path=dirname(infile_raster),
+                        full.names=T)
+
+r_s <- stack(lf_rasters[2:4])
+
+r2 <- raster(lf_rasters[3])
+r3 <- raster(lf_rasters[5])
+r4 <- raster(lf_rasters[6])
+
+plot(r4)
+res(r4)
+res(r2)
+
+r_s <- stack(r2,r3,r4) #generate a stack of raster
+
+#############
+#### Add attribute values to segments
+
+segments_sp <- as(segments_sf, "Spatial") #Convert object sf to sp for use with the raster package
+
+df_val <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took 15 minutes for level 50)
+class(df_val)
+segments_val_sp <- segments_sp
+dim(df_val)
+dim(segments_sp)
+segments_sp <- cbind(segments_sp,df_val)
+class(segments_sp)
+names(segments_sp)
+
+df_segments <- as.data.frame(segments_sp)
+
+input_bands <- c(4,5)
+
+if("kmeans" %in% model_names){
+  kmeans_cl <- kmeans(df_segments[,input_bands], 5) # 5 cluster solution
+}
+
+plot(df_segments[,input_bands],col=kmeans_cl$cluster)
+points(kmeans_cl$centers,col=c("yellow"),pch=9)
+
 
 ################################ END OF SCRIPT ###################
