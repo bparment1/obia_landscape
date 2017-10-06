@@ -2,13 +2,13 @@
 ## Performing Object Based Image Analyses (OBIA) using segments from TerrSet.
 ## 
 ## DATE CREATED: 10/02/2017
-## DATE MODIFIED: 10/02/2017
+## DATE MODIFIED: 10/06/2017
 ## AUTHORS: Benoit Parmentier 
 ## PROJECT: Food and Landscape Diversity
 ## ISSUE: 
 ## TO DO:
 ##
-## COMMIT: initial commit using segments in R
+## COMMIT: generating clusters example
 ##
 ## Links to investigate:
 ##https://stats.idre.ucla.edu/r/dae/logit-regression/
@@ -88,12 +88,14 @@ create_out_dir_param=TRUE # param 9
 
 out_suffix <-"segmentation_example_10022017" #output suffix for the files and ouptut folder #param 12
 
-infile_data <- "test_0.shp" #segments level zero
+#infile_data <- "test_0.shp" #segments level zero
 infile_data <- "test_50.shp" #segments level zero
 
 infile_raster_band2 <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/input_data/sierra2.rst"
 
-model_names <- c("kmeans")
+model_names <- c("kmeans","hclust","knn")
+seed_val <- 100
+nb_cluster <- 5 #number of clusters
 
 ##############################  START SCRIPT  ############################
 
@@ -129,14 +131,13 @@ dim(segments_sf) #26927
 pattern_rasters <- "sierra.*.rst$"
 #list.files(pattern=pattern_rasters,path=dirname(infile_raster))
 lf_rasters<- list.files(pattern=pattern_rasters,
-                        path=dirname(infile_raster),
+                        path=dirname(infile_raster_band2),
                         full.names=T)
 
-r_s <- stack(lf_rasters[2:4])
 
-r2 <- raster(lf_rasters[3])
-r3 <- raster(lf_rasters[5])
-r4 <- raster(lf_rasters[6])
+r2 <- raster(lf_rasters[3]) #band2
+r3 <- raster(lf_rasters[5]) #band3
+r4 <- raster(lf_rasters[6]) #band4
 
 plot(r4)
 res(r4)
@@ -149,25 +150,42 @@ r_s <- stack(r2,r3,r4) #generate a stack of raster
 
 segments_sp <- as(segments_sf, "Spatial") #Convert object sf to sp for use with the raster package
 
-df_val <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took 15 minutes for level 50)
-class(df_val)
-segments_val_sp <- segments_sp
-dim(df_val)
+df_var <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took 15 minutes for level 50)
+class(df_var) #this is a sp object
+dim(df_var)
 dim(segments_sp)
-segments_sp <- cbind(segments_sp,df_val)
-class(segments_sp)
-names(segments_sp)
 
-df_segments <- as.data.frame(segments_sp)
+df_segments <- as.data.frame(df_var)
 
-input_bands <- c(4,5)
+input_var <- c(3,4,5)#select columns with relevant spectral band information
+
+###### Generate classification
+
+set.seed(seed_val)
 
 if("kmeans" %in% model_names){
-  kmeans_cl <- kmeans(df_segments[,input_bands], 5) # 5 cluster solution
+  kmeans_cl <- kmeans(df_segments[,input_var], nb_cluster) # 5 cluster solution
 }
 
 plot(df_segments[,input_bands],col=kmeans_cl$cluster)
-points(kmeans_cl$centers,col=c("yellow"),pch=9)
+points(kmeans_cl$centers[,2:3],col=c("yellow"),pch=9,
+       main="Kmeans clusters and centroids") #select column 2, 3 to match bands
 
+if("hclust" %in% model_names){
+  #kmeans_cl <- kmeans(df_segments[,input_bands], 5) # 5 cluster solution
+  ## plot the classified image
+  # Ward Hierarchical Clustering
+  dist_obj <- dist(df_segments[,input_var], method = "euclidean") # distance matrix
+  hclust_obj <- hclust(dist_obj, method="ward.D") 
+  plot(hclust_obj) # display dendogram
+  groups <- cutree(hclust_obj, k=5) # cut tree into 5 clusters
+  # draw dendogram with red borders around the 5 clusters 
+  rect.hclust(hclust_obj, k=5, border="red")
+}
+
+######### Spatial results: plot results with the polygons
+
+df_var$kmeans <- kmeans_cl$cluster #spatial polygons data.frame with labels from kmeans
+spplot(df_var,"kmeans")
 
 ################################ END OF SCRIPT ###################
