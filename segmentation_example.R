@@ -2,7 +2,7 @@
 ## Performing Object Based Image Analyses (OBIA) using segments from TerrSet.
 ## 
 ## DATE CREATED: 10/02/2017
-## DATE MODIFIED: 10/06/2017
+## DATE MODIFIED: 11/09/2017
 ## AUTHORS: Benoit Parmentier 
 ## PROJECT: Food and Landscape Diversity
 ## ISSUE: 
@@ -43,9 +43,10 @@ library(randomForest)                        # random forests
 library(lattice)                             # Plot package
 library(caret)                               # Modeling with assessment hold outs, CV folds and data splitting
 library(gplots)                              # Plot package
-library(sf)
+library(sf)                                  # spatial object replacing sp in the future
+library(SDMTools)                            # Landscape indices
+library(apcluster)                           # exemplar based methods for clustering
 
-#
 ###### Functions used in this script and sourced from other files
 
 create_dir_fun <- function(outDir,out_suffix=NULL){
@@ -86,11 +87,11 @@ in_dir <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segment
 num_cores <- 2 #param 8 #normally I use only 1 core for this dataset but since I want to use the mclappy function the number of cores is changed to 2. If it was 1 then mclappy will be reverted back to the lapply function
 create_out_dir_param=TRUE # param 9
 
-out_suffix <-"segmentation_example_10022017" #output suffix for the files and ouptut folder #param 12
+out_suffix <-"segmentation_example_11092017" #output suffix for the files and ouptut folder #param 12
 
 #infile_data <- "test_0.shp" #segments level zero
 infile_data <- "test_50.shp" #segments level zero
-
+df_var_fname <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/output_segmentation_example_11092017/df_var_segmentation_example_11092017.shp"
 infile_raster_band2 <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/input_data/sierra2.rst"
 
 model_names <- c("kmeans","hclust","knn")
@@ -126,7 +127,7 @@ options(scipen=999)  #remove scientific writing
 segments_sf <- st_read(file.path(in_dir,infile_data))
 plot(segments_sf$geometry)
 
-dim(segments_sf) #26927
+dim(segments_sf) #1122
 
 pattern_rasters <- "sierra.*.rst$"
 #list.files(pattern=pattern_rasters,path=dirname(infile_raster))
@@ -150,7 +151,14 @@ r_s <- stack(r2,r3,r4) #generate a stack of raster
 
 segments_sp <- as(segments_sf, "Spatial") #Convert object sf to sp for use with the raster package
 
-df_var <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took 15 minutes for level 50)
+if(is.null(df_var_fname)){
+  df_var <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took 15 minutes for level 50)
+  out_filename <- paste0("df_var_",out_suffix)
+  writeOGR(df_var,dsn=out_dir,layer=out_filename,driver="ESRI Shapefile")
+}else{
+  df_var <- st_read(df_var_fname)
+}
+
 class(df_var) #this is a sp object
 dim(df_var)
 dim(segments_sp)
@@ -167,9 +175,10 @@ if("kmeans" %in% model_names){
   kmeans_cl <- kmeans(df_segments[,input_var], nb_cluster) # 5 cluster solution
 }
 
-plot(df_segments[,input_bands],col=kmeans_cl$cluster)
-points(kmeans_cl$centers[,2:3],col=c("yellow"),pch=9,
-       main="Kmeans clusters and centroids") #select column 2, 3 to match bands
+### Plot scatterplots of values for band3 and band
+plot(df_segments[,4:5],col=kmeans_cl$cluster,main="Kmeans clusters and centroids")
+
+points(kmeans_cl$centers[,2:3],col=c("yellow"),pch=9) #select column 2, 3 to match bands
 
 if("hclust" %in% model_names){
   #kmeans_cl <- kmeans(df_segments[,input_bands], 5) # 5 cluster solution
@@ -178,6 +187,7 @@ if("hclust" %in% model_names){
   dist_obj <- dist(df_segments[,input_var], method = "euclidean") # distance matrix
   hclust_obj <- hclust(dist_obj, method="ward.D") 
   plot(hclust_obj) # display dendogram
+  
   groups <- cutree(hclust_obj, k=5) # cut tree into 5 clusters
   # draw dendogram with red borders around the 5 clusters 
   rect.hclust(hclust_obj, k=5, border="red")
@@ -186,6 +196,17 @@ if("hclust" %in% model_names){
 ######### Spatial results: plot results with the polygons
 
 df_var$kmeans <- kmeans_cl$cluster #spatial polygons data.frame with labels from kmeans
-spplot(df_var,"kmeans")
+#spplot(df_var,"kmeans")
+plot(df_var["kmeans"],main="kmeans clusters")
+df_var_sp <- as(df_var,"Spatial")
+
+r_kmeans <- rasterize(df_var_sp,r_s,"kmeans") #make a raster from the classified segments
+plot(r_kmeans,"Kmeans cluster")
+#raster_name <-
+#writeRaster()
+
+####### Adding segments specific info: landscape indices
+
+
 
 ################################ END OF SCRIPT ###################
