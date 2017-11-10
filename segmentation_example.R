@@ -2,7 +2,7 @@
 ## Performing Object Based Image Analyses (OBIA) using segments from TerrSet.
 ## 
 ## DATE CREATED: 10/02/2017
-## DATE MODIFIED: 11/09/2017
+## DATE MODIFIED: 11/10/2017
 ## AUTHORS: Benoit Parmentier 
 ## PROJECT: Food and Landscape Diversity
 ## ISSUE: 
@@ -97,6 +97,8 @@ infile_raster_band2 <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDive
 model_names <- c("kmeans","hclust","knn")
 seed_val <- 100
 nb_cluster <- 5 #number of clusters
+file_format <- ".tif"
+NA_flag_val <- -9999
 
 ##############################  START SCRIPT  ############################
 
@@ -193,6 +195,10 @@ if("hclust" %in% model_names){
   rect.hclust(hclust_obj, k=5, border="red")
 }
 
+#if("apcluster" %in% model_names){
+#  #to implement
+#}
+
 ######### Spatial results: plot results with the polygons
 
 df_var$kmeans <- kmeans_cl$cluster #spatial polygons data.frame with labels from kmeans
@@ -202,11 +208,25 @@ df_var_sp <- as(df_var,"Spatial")
 
 r_kmeans <- rasterize(df_var_sp,r_s,"kmeans") #make a raster from the classified segments
 plot(r_kmeans,"Kmeans cluster")
-#raster_name <-
-#writeRaster()
+raster_name <- paste0("kmeans_",out_suffix,file_format)
+writeRaster(r_kmeans,raster_name,overwrite=T)
 
 ####### Adding segments specific info: landscape indices
 
+#http://jwhollister.com/r_landscape_tutorial/tutorial.html
+
+### Class metrics
+
+kmeans_class_metrics <- ClassStat(mat = r_kmeans, cellsize = 30)
+class(kmeans_class_metrics)
+View(kmeans_class_metrics)
+
+## Patch metric:
+kmeans_patch <- ConnCompLabel(r_kmeans==3|r_kmeans==4|r_kmeans==5)
+plot(kmeans_patch)
+r_kmeans_2 <- ConnCompLabel(r_kmeans==2)
+plot(r_kmeans_2)
+##
 
 
 ################################ END OF SCRIPT ###################
