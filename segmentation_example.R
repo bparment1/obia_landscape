@@ -29,7 +29,6 @@ library(parallel)                            # Parallelization of processes with
 library(maptools)                            # Tools and functions for sp and other spatial objects e.g. spCbind
 library(maps)                                # Tools and data for spatial/geographic objects
 library(plyr)                                # Various tools including rbind.fill
-library(spgwr)                               # GWR method
 library(rgeos)                               # Geometric, topologic library of functions
 library(gridExtra)                           # Combining lattice plots
 library(colorRamps)                          # Palette/color ramps for symbology
@@ -87,10 +86,12 @@ in_dir <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segment
 num_cores <- 2 #param 8 #normally I use only 1 core for this dataset but since I want to use the mclappy function the number of cores is changed to 2. If it was 1 then mclappy will be reverted back to the lapply function
 create_out_dir_param=TRUE # param 9
 
-out_suffix <-"segmentation_example_11092017" #output suffix for the files and ouptut folder #param 12
+out_suffix <-"segmentation_example_11132017" #output suffix for the files and ouptut folder #param 12
 
 #infile_data <- "test_0.shp" #segments level zero
 infile_data <- "test_50.shp" #segments level zero
+infile_data <- "test55_70.shp" #segments level zero
+
 df_var_fname <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/output_segmentation_example_11092017/df_var_segmentation_example_11092017.shp"
 infile_raster_band2 <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/input_data/sierra2.rst"
 
@@ -129,7 +130,8 @@ options(scipen=999)  #remove scientific writing
 segments_sf <- st_read(file.path(in_dir,infile_data))
 plot(segments_sf$geometry)
 
-dim(segments_sf) #1122
+#dim(segments_sf) #1122
+dim(segments_sf) #373
 
 pattern_rasters <- "sierra.*.rst$"
 #list.files(pattern=pattern_rasters,path=dirname(infile_raster))
@@ -142,11 +144,13 @@ r2 <- raster(lf_rasters[3]) #band2
 r3 <- raster(lf_rasters[5]) #band3
 r4 <- raster(lf_rasters[6]) #band4
 
-plot(r4)
+plot(r4) # plot band 4 Landsat
 res(r4)
 res(r2)
 
 r_s <- stack(r2,r3,r4) #generate a stack of raster
+#Might want to generate a multiband tiff if large number of segments
+#Extract works faster on unique multiband files.
 
 #############
 #### Add attribute values to segments
@@ -154,16 +158,22 @@ r_s <- stack(r2,r3,r4) #generate a stack of raster
 segments_sp <- as(segments_sf, "Spatial") #Convert object sf to sp for use with the raster package
 
 if(is.null(df_var_fname)){
-  df_var <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took 15 minutes for level 50)
+  df_var_sp <- extract(r_s,segments_sp,fun="mean",sp=T) #this part can be slow!! (took about 9 minutes for level 70)
   out_filename <- paste0("df_var_",out_suffix)
-  writeOGR(df_var,dsn=out_dir,layer=out_filename,driver="ESRI Shapefile")
+  writeOGR(df_var_sp,dsn=out_dir,layer=out_filename,driver="ESRI Shapefile")
+  df_var <- as(df_var_sp,"sf")
 }else{
   df_var <- st_read(df_var_fname)
 }
 
-class(df_var) #this is a sp object
+class(df_var) #this is a sf object
 dim(df_var)
 dim(segments_sp)
+
+#### Plot segments with raster band 4 in the background
+plot(r4)
+plot(df_var$geometry,add=T) #plotting segements with band 3 in the backgourn
+title("kmeans clusters")
 
 df_segments <- as.data.frame(df_var)
 
@@ -195,6 +205,7 @@ if("hclust" %in% model_names){
   rect.hclust(hclust_obj, k=5, border="red")
 }
 
+## Use exemplar method: later on
 #if("apcluster" %in% model_names){
 #  #to implement
 #}
@@ -203,30 +214,50 @@ if("hclust" %in% model_names){
 
 df_var$kmeans <- kmeans_cl$cluster #spatial polygons data.frame with labels from kmeans
 #spplot(df_var,"kmeans")
-plot(df_var["kmeans"],main="kmeans clusters")
+plot(df_var["kmeans"],main="kmeans clusters") #plotting segements with band 3 in the backgourn
 df_var_sp <- as(df_var,"Spatial")
 
-r_kmeans <- rasterize(df_var_sp,r_s,"kmeans") #make a raster from the classified segments
+r_kmeans <- rasterize(df_var_sp,r4,"kmeans") #make a raster from the classified segments
 plot(r_kmeans,"Kmeans cluster")
 raster_name <- paste0("kmeans_",out_suffix,file_format)
 writeRaster(r_kmeans,raster_name,overwrite=T)
 
-####### Adding segments specific info: landscape indices
+########################################################
+####### Adding segments and class specific info: landscape indices
 
 #http://jwhollister.com/r_landscape_tutorial/tutorial.html
 
+
 ### Class metrics
+#similar to class statistics from fragstats
 
 kmeans_class_metrics <- ClassStat(mat = r_kmeans, cellsize = 30)
 class(kmeans_class_metrics)
 View(kmeans_class_metrics)
+dim(kmeans_class_metrics) # 38 metrics
+out_file <- paste0("landscape_class_metrics_df_",out_suffix,".txt")
+write.table(kmeans_class_metrics,file.path(out_dir,out_file),sep=",",row.names=F)
 
 ## Patch metric:
-kmeans_patch <- ConnCompLabel(r_kmeans==3|r_kmeans==4|r_kmeans==5)
-plot(kmeans_patch)
-r_kmeans_2 <- ConnCompLabel(r_kmeans==2)
-plot(r_kmeans_2)
-##
 
+r_kmeans_cat_2 <- r_kmeans==2 #all pixels falling in class 2
+plot(r_kmeans_cat_2) #boolean raster: 1 is class 2 and 0 is not
+df_cat_2 <- freq(r_kmeans_cat_2) #frequency of pixels for 0 and 1
+
+### Now generate patch metric for class 2
+r_kmeans_cl_2 <- ConnCompLabel(r_kmeans==2)
+plot(r_kmeans_cl_2)
+freq(r_kmeans_cl_2) #21 patches
+
+kmeans_patch_metrics_cl_2 <- PatchStat(mat = r_kmeans_cl_2, cellsize = 30)
+dim(kmeans_patch_metrics_cl_2)
+View(kmeans_patch_metrics_cl_2)
+
+### can also combine classes if needed
+kmeans_patch <- ConnCompLabel(r_kmeans==2|r_kmeans==3)
+
+
+out_file <- paste0("landscape_patch_metrics_cl_2_df_",out_suffix,".txt")
+write.table(kmeans_patch_metrics_cl_2,file.path(out_dir,out_file),sep=",",row.names=F)
 
 ################################ END OF SCRIPT ###################
