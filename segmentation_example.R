@@ -2,7 +2,7 @@
 ## Performing Object Based Image Analyses (OBIA) using segments from TerrSet.
 ## 
 ## DATE CREATED: 10/02/2017
-## DATE MODIFIED: 11/10/2017
+## DATE MODIFIED: 11/14/2017
 ## AUTHORS: Benoit Parmentier 
 ## PROJECT: Food and Landscape Diversity
 ## ISSUE: 
@@ -88,10 +88,9 @@ create_out_dir_param=TRUE # param 9
 
 out_suffix <-"segmentation_example_11132017" #output suffix for the files and ouptut folder #param 12
 
-#infile_data <- "test_0.shp" #segments level zero
-infile_data <- "test_50.shp" #segments level zero
-infile_data <- "test55_70.shp" #segments level zero
-
+infile_data <- "test55_70.shp" #segments level 70, vector file
+infile_seg_raster <- "test55_70.rst" #segments level 79, raster file
+  
 df_var_fname <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/output_segmentation_example_11092017/df_var_segmentation_example_11092017.shp"
 infile_raster_band2 <- "/nfs/bparmentier-data/Data/projects/FoodandLandscapeDiversity/segmentation/input_data/sierra2.rst"
 
@@ -134,7 +133,6 @@ plot(segments_sf$geometry)
 dim(segments_sf) #373
 
 pattern_rasters <- "sierra.*.rst$"
-#list.files(pattern=pattern_rasters,path=dirname(infile_raster))
 lf_rasters<- list.files(pattern=pattern_rasters,
                         path=dirname(infile_raster_band2),
                         full.names=T)
@@ -227,7 +225,6 @@ writeRaster(r_kmeans,raster_name,overwrite=T)
 
 #http://jwhollister.com/r_landscape_tutorial/tutorial.html
 
-
 ### Class metrics
 #similar to class statistics from fragstats
 
@@ -259,5 +256,49 @@ kmeans_patch <- ConnCompLabel(r_kmeans==2|r_kmeans==3)
 
 out_file <- paste0("landscape_patch_metrics_cl_2_df_",out_suffix,".txt")
 write.table(kmeans_patch_metrics_cl_2,file.path(out_dir,out_file),sep=",",row.names=F)
+
+#### USE SEGMENTS CHARACTERISTICS AS VARIABLES FOR CLUSTER
+
+r_seg_70 <- raster(file.path(in_dir,infile_seg_raster))
+plot(r_seg_70)
+
+seg_70_patch_metrics_df <- PatchStat(mat = r_seg_70, cellsize = 30)
+View(seg_70_patch_metrics_df)
+dim(seg_70_patch_metrics_df)
+names(seg_70_patch_metrics_df)
+
+dim(df_segments)
+names(df_segments)
+
+df_var_input <- df_segments
+df_var_input <- merge(df_segments,seg_70_patch_metrics_df,by.x="REC_NUM", by.y="patchID")
+df_var_input <- merge(df_var_sp,df_var_input,by="REC_NUM")
+df_var_input <- as(df_var_input,"sf")
+dim(df_var_input)
+names(df_var_input)
+in_put_var <- c("sierra2","sierra3","sierra4","shape.index","perim.area.ratio")
+
+if("kmeans" %in% model_names){
+  kmeans_cl <- kmeans(df_var_input[,input_var], nb_cluster) # 5 cluster solution
+}
+
+### Plot scatterplots of values for band3 and band
+plot(as.data.frame(df_var_input)[,4:5],col=kmeans_cl$cluster,main="Kmeans clusters and centroids")
+
+points(kmeans_cl$centers[,2:3],col=c("yellow"),pch=9) #select column 2, 3 to match bands
+
+df_var_input$kmeans_patch <- kmeans_cl$cluster #spatial polygons data.frame with labels from kmeans
+plot(df_var_input["kmeans_patch"]) 
+plot(df_var["kmeans"])
+
+df_var_in_sp <- as(df_var_input,"Spatial")
+r_kmeans_patch <- rasterize(df_var_in_sp,r4,"kmeans_patch") #make a raster from the classified segments
+raster_name <- paste0("kmeans_patch_",out_suffix,file_format)
+writeRaster(r_kmeans_patch,raster_name,overwrite=T)
+
+r_s_cluster <- stack(r_kmeans_patch,r_kmeans)
+plot(r_s_cluster)
+levelplot(r_s_cluster) #plotting classified rasters for comparison on the same scale
+
 
 ################################ END OF SCRIPT ###################
